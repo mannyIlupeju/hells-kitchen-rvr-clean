@@ -7,7 +7,7 @@ const app = express();
 
 // More permissive CORS for development
 app.use(cors({
-    origin: true, // Allow all origins for debugging
+    origin: 'https://reveillerstudios.com', // Allow all origins for debugging
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
