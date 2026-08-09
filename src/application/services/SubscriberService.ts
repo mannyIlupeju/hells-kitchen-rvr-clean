@@ -6,6 +6,8 @@ interface SubscriberDTO {
     id: string;
     fullName: string;
     email: string;
+    phone?: string;
+    smsConsent?: boolean;
     termsAgreed: boolean;
     requestUpdate: boolean;
 }
@@ -21,26 +23,30 @@ export class SubscriberService {
         id,
         fullName,
         email,
+        phone,
+        smsConsent,
         termsAgreed,
         requestUpdate,
       } = subscriberData;
-  
+
       const user = new NewsletterSubscriber({
         id,
-        fullName, 
+        fullName,
         email,
+        phone,
+        smsConsent,
         termsAgreed,
         requestUpdate,
       })
-  
+
       try {
-        await this.subscriberRepo.subscribeUser(email, fullName, termsAgreed, requestUpdate);
+        await this.subscriberRepo.subscribeUser(email, fullName, termsAgreed, requestUpdate, phone, user.smsConsent);
       } catch (firebaseErr) {
         console.error("Error saving to Firebase:", firebaseErr);
         // Optionally, throw or handle as needed
       }
       try {
-        await this.klaviyoRepo.subscribeUser(user.email, user.fullName, user.termsAgreed, user.requestUpdate);
+        await this.klaviyoRepo.subscribeUser(user.email, user.fullName, user.termsAgreed, user.requestUpdate, user.phone, user.smsConsent);
       } catch (klaviyoErr) {
         console.error("Error syncing to Klaviyo:", klaviyoErr);
         // Optionally, throw or handle as needed

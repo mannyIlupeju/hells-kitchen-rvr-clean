@@ -19,13 +19,15 @@ router.post("/registerSubscriber", async (req:any, res:any) => {
       return res.status(400).json({ error: "Validation failed", details: formatted });
     }
 
-    const { fullName, email, termsAgreed, requestUpdate } = result.data;
+    const { fullName, email, phone, smsConsent, termsAgreed, requestUpdate } = result.data;
 
     // Ensure the DTO matches the service definition
     const user = await userService.registerSubscriber({
       id: uuidv4(),
       fullName,
       email,
+      phone: phone || undefined,
+      smsConsent: smsConsent === true || smsConsent === 'true',
       termsAgreed: termsAgreed === true || termsAgreed === 'true',
       requestUpdate: requestUpdate === true || requestUpdate === 'true', // match service DTO
     });

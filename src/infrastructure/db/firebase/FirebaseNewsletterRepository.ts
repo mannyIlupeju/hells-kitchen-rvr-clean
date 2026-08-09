@@ -6,7 +6,7 @@ import isEmail from "validator/lib/isEmail";
 export class FirebaseNewsletterRepository implements INewsLetterService {
   private newsletterSubscriberRef = dbAdmin.collection("newsletterSubscribers");
 
-  async subscribeUser(email: string, name: string, termsAgreed:boolean, requestUpdate:boolean): Promise<void> {
+  async subscribeUser(email: string, name: string, termsAgreed:boolean, requestUpdate:boolean, phone?: string, smsConsent?: boolean): Promise<void> {
     if (!isEmail(email)) {
       throw new Error("Invalid email format");
     }
@@ -18,6 +18,8 @@ export class FirebaseNewsletterRepository implements INewsLetterService {
       {
         fullName: name.toLowerCase().trim(),
         email: email,
+        ...(phone ? { phone } : {}),
+        smsConsent: Boolean(smsConsent && phone),
         termsAgreed: termsAgreed,
         requestUpdate: requestUpdate,
         createdAt: now,
