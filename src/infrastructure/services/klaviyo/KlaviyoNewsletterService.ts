@@ -15,7 +15,7 @@ export class KlaviyoNewsletterService implements INewsLetterService {
   private readonly baseUrl  = process.env.KLAVIYO_API_BASE ?? "https://a.klaviyo.com/api";
   private readonly apiKey   = process.env.KLAVIYO_API_KEY!;      // private key, must be set
   private readonly listId   = process.env.KLAVIYO_LIST_ID!;     // list ID, must be set
-  private readonly revision = "2025-04-15";
+  private readonly revision = "2026-07-15";
 
   /** Common JSON:API headers including authorization */
   private get headers() {
@@ -140,6 +140,48 @@ export class KlaviyoNewsletterService implements INewsLetterService {
   }
 
   /**
+   * Sets actual EMAIL marketing consent (and list membership) via Klaviyo's bulk
+   * subscription job. Adding a profile to a list via the plain relationships
+   * endpoint does NOT grant marketing consent per Klaviyo's docs — campaigns sent
+   * to the list will silently skip non-consented profiles. This is deliberately
+   * the only step that must succeed for a signup to "count": no phone_number is
+   * included here so a Klaviyo-rejected phone number can never block email
+   * consent (phone and name are captured separately, best-effort, in
+   * upsertProfile — this endpoint's profile object rejects first_name/last_name).
+   */
+  private async subscribeEmail(email: string): Promise<void> {
+    await this.request<void>(`${this.baseUrl}/profile-subscription-bulk-create-jobs`, {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify({
+        data: {
+          type: "profile-subscription-bulk-create-job",
+          attributes: {
+            profiles: {
+              data: [
+                {
+                  type: "profile",
+                  attributes: {
+                    email,
+                    subscriptions: {
+                      email: { marketing: { consent: "SUBSCRIBED" } },
+                    },
+                  },
+                },
+              ],
+            },
+            historical_import: false,
+            custom_source: "Website Newsletter Signup",
+          },
+          relationships: {
+            list: { data: { type: "list", id: this.listId } },
+          },
+        },
+      }),
+    });
+  }
+
+  /**
    * Sets actual SMS marketing consent on the list via Klaviyo's bulk subscription
    * job. Unlike setting `phone_number` as a plain attribute, this is what makes a
    * profile legally subscribed to SMS and eligible to receive SMS campaigns for
@@ -168,6 +210,7 @@ export class KlaviyoNewsletterService implements INewsLetterService {
               ],
             },
             historical_import: false,
+            custom_source: "Website Newsletter Signup",
           },
           relationships: {
             list: { data: { type: "list", id: this.listId } },
@@ -178,13 +221,11 @@ export class KlaviyoNewsletterService implements INewsLetterService {
   }
 
   /**
-   * Public: upsert profile, store phone number (if provided) as a plain profile
-   * attribute, and add to the newsletter list.
-   *
-   * `smsConsent` controls whether we also set actual SMS marketing consent via
-   * Klaviyo's subscription API (requires a TCPA-compliant opt-in checkbox on the
-   * frontend and a validatable phone number) — without it, the phone number is
-   * captured as data only and the profile is not SMS-subscribed.
+   * Public: grant real email marketing consent (and list membership) — the step
+   * that actually matters for being able to send campaigns to this person later.
+   * Phone number is captured separately as a best-effort, non-blocking step, and
+   * SMS consent is set only if explicitly opted in. Order matters: email consent
+   * runs first and its success is independent of anything phone-related.
    */
   async subscribeUser(
     email: string,
@@ -198,24 +239,24 @@ export class KlaviyoNewsletterService implements INewsLetterService {
       throw new Error("Email and name are required to subscribe");
     }
 
-    // 1) Upsert the profile (create or fetch its ID), syncing phone number
-    const profileId = await this.upsertProfile(email, name, { termsAgreed, requestUpdate }, phone);
+    // 1) Grant actual email marketing consent + list membership. This must
+    // succeed for the signup to count, so no phone_number is included here —
+    // a Klaviyo-rejected phone must never be able to block email consent.
+    await this.subscribeEmail(email);
 
-    // 2) Point at the relationships endpoint
-    const url = `${this.baseUrl}/lists/${this.listId}/relationships/profiles`;
+    // 2) Best-effort: set name and (if provided) phone number as plain profile
+    // attributes — data capture only, no consent implied. Runs regardless of
+    // whether a phone was given, since it's also what sets first/last name.
+    // Must not fail the overall subscribe.
+    try {
+      await this.upsertProfile(email, name, { termsAgreed, requestUpdate }, phone);
+    } catch (err) {
+      console.error(`Failed to sync profile details for ${email}:`, err);
+    }
 
-    // 3) POST a profile relationship
-    await this.request<void>(url, {
-      method: "POST",
-      headers: this.headers,
-      body: JSON.stringify({
-        data: [{ type: "profile", id: profileId }]
-      }),
-    });
-
-    // 4) If the user opted into SMS, set actual marketing consent. A phone
-    // Klaviyo can't validate must not fail the whole subscribe attempt — the
-    // email subscription above has already succeeded at this point.
+    // 3) If the user opted into SMS, set actual SMS marketing consent. A phone
+    // Klaviyo can't validate must not fail the whole subscribe attempt — email
+    // consent above has already succeeded at this point.
     if (smsConsent && phone) {
       try {
         await this.subscribeSms(email, phone);
